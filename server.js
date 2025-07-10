@@ -1,8 +1,9 @@
-
 const http = require('http');
 const url = require('url');
 
 const PORT = Number(process.env.PORT) || 8080;
+const FB_PIXEL_ID = process.env.FB_PIXEL_ID;
+const FB_ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN;
 
 const server = http.createServer((req, res) => {
   const { pathname } = url.parse(req.url, true);
@@ -24,33 +25,44 @@ const server = http.createServer((req, res) => {
     return res.end('OK');
   }
 
-  // GTM Server Tag endpoint
   if (pathname === '/collect' || pathname === '/g/collect') {
     let body = '';
     req.on('data', chunk => { body += chunk });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (!body || body.trim().length === 0) {
         console.error('❌ Empty request body');
         res.writeHead(400);
-        return res.end('Bad Request: Empty body');
+        return res.end('Missing request body');
       }
 
       try {
-        const data = JSON.parse(body);
-        console.log('✅ Received event:', JSON.stringify(data, null, 2));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ status: 'ok' }));
+        const eventData = JSON.parse(body);
+        console.log('✅ Received event:', JSON.stringify(eventData, null, 2));
+
+        const response = await fetch(`https://graph.facebook.com/v19.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: [eventData],
+            test_event_code: eventData.test_event_code || undefined
+          })
+        });
+
+        const fbRes = await response.json();
+        console.log('📡 Meta response:', fbRes);
+
+        res.writeHead(200);
+        res.end('Event forwarded to Meta');
       } catch (err) {
-        console.error('❌ JSON parse error:', err.message);
-        res.writeHead(400);
-        return res.end('Bad Request: Invalid JSON');
+        console.error('❌ JSON parse error or request failed:', err.message);
+        res.writeHead(500);
+        res.end('Server error');
       }
     });
-    return;
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
   }
-
-  res.writeHead(404);
-  res.end('Not Found');
 });
 
 server.listen(PORT, () => {
