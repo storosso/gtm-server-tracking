@@ -49,20 +49,22 @@ const server = http.createServer((req, res) => {
           user_data: {
             ...user_data,
             fbp: fbp || undefined,
-            fbc: fbc || undefined,
+            fbc: fbc || undefined
           },
           custom_data: {
             ...custom_data,
-            page_title: page_title || undefined,
+            page_title: page_title || undefined
           }
         };
 
-        const forwardBody = { data: [event] };
+        const forwardBody = {
+          data: [event]
+        };
 
         const fbRes = await fetch(`https://graph.facebook.com/v17.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(forwardBody),
+          body: JSON.stringify(forwardBody)
         });
 
         const fbResult = await fbRes.json();
