@@ -1,14 +1,15 @@
-
 const http = require('http');
 const url = require('url');
+const fetch = require('node-fetch');
 
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
+const FB_PIXEL_ID = process.env.FB_PIXEL_ID;
+const FB_ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN;
 
 const server = http.createServer((req, res) => {
-  const parsedUrl = url.parse(req.url, true);
-  const { pathname, query } = parsedUrl;
+  const { pathname } = url.parse(req.url, true);
 
-  // CORS headers
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,37 +24,42 @@ const server = http.createServer((req, res) => {
     return res.end('OK');
   }
 
-  if (pathname === '/gtm.js') {
-    res.writeHead(200, { 'Content-Type': 'application/javascript' });
-    return res.end('// GTM Stub');
-  }
-
-  if (pathname === '/gtm/preview') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    return res.end('<html><body><h2>Preview Mode</h2></body></html>');
-  }
-
-  if (pathname === '/gtm/debug') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    if (query && query.gtm_preview) {
-      return res.end('Preview OK');
-    }
-    return res.end('GTM Server Running');
-  }
-
-  if (pathname === '/collect' || pathname === '/g/collect') {
+  if (pathname === '/collect') {
     let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      console.log('📦 Received data:', body);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'received' }));
-    });
-    return;
-  }
 
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('GTM Server Running');
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const eventData = JSON.parse(body);
+
+        console.log('📥 Received CAPI event:', eventData);
+
+        const forwardBody = {
+          data: [eventData],
+          // optional: test_event_code: 'TEST123' // ← pune-l temporar dacă vrei
+        };
+
+        const fbRes = await fetch(`https://graph.facebook.com/v17.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(forwardBody),
+        });
+
+        const fbResult = await fbRes.json();
+        console.log('📤 Sent to Meta CAPI:', fbResult);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ status: 'forwarded', fbResult }));
+      } catch (err) {
+        console.error('❌ Failed to process request:', err);
+        res.writeHead(500);
+        return res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
+    });
+  } else {
+    res.writeHead(404);
+    res.end('Not Found');
+  }
 });
 
 server.listen(PORT, () => {
