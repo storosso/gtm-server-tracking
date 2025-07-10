@@ -6,9 +6,10 @@ const PORT = process.env.PORT || 8080;
 const FB_PIXEL_ID = process.env.FB_PIXEL_ID;
 const FB_ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN;
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const { pathname } = url.parse(req.url, true);
 
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -18,72 +19,55 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
+  // Health check
   if (pathname === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('OK');
   }
 
-  if (pathname === '/collect') {
+  // GTM event receiver
+  if (pathname === '/collect' || pathname === '/g/collect') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
+      if (!body) {
+        console.error('❌ Empty request body');
+        res.writeHead(400);
+        return res.end('Missing body');
+      }
+
       try {
         const eventData = JSON.parse(body);
-        console.log('📥 Received CAPI event:', eventData);
+        console.log('📥 Received event:', JSON.stringify(eventData, null, 2));
 
-        const {
-          event_name,
-          event_time,
-          event_source_url,
-          page_title,
-          user_data = {},
-          custom_data = {},
-          fbp,
-          fbc
-        } = eventData;
-
-        const event = {
-          event_name,
-          event_time,
-          event_source_url,
-          user_data: {
-            ...user_data,
-            fbp: fbp || undefined,
-            fbc: fbc || undefined
-          },
-          custom_data: {
-            ...custom_data,
-            page_title: page_title || undefined
-          }
-        };
-
-        const forwardBody = {
-          data: [event]
-        };
-
-        const fbRes = await fetch(`https://graph.facebook.com/v17.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
+        const fbResponse = await fetch(`https://graph.facebook.com/v17.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(forwardBody)
+          body: JSON.stringify({
+            data: [eventData],
+            test_event_code: eventData.test_event_code || undefined // optional
+          })
         });
 
-        const fbResult = await fbRes.json();
-        console.log('📤 Sent to Meta CAPI:', fbResult);
+        const fbResult = await fbResponse.json();
+        console.log('📤 Meta response:', JSON.stringify(fbResult, null, 2));
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ status: 'forwarded', fbResult }));
+        res.end(JSON.stringify({ status: 'ok', fb: fbResult }));
       } catch (err) {
-        console.error('❌ Failed to process request:', err);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        console.error('❌ Error processing request:', err);
+        res.writeHead(500);
+        res.end('Server error');
       }
     });
-  } else {
-    res.writeHead(404);
-    res.end('Not Found');
+    return;
   }
+
+  // Default: Not Found
+  res.writeHead(404);
+  res.end('Not found');
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 GTM Server listening on port ${PORT}`);
+  console.log(`✅ GTM Server listening on port ${PORT}`);
 });
