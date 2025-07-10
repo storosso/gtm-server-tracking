@@ -9,6 +9,7 @@ const FB_ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN;
 const server = http.createServer((req, res) => {
   const { pathname } = url.parse(req.url, true);
 
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -25,14 +26,30 @@ const server = http.createServer((req, res) => {
 
   if (pathname === '/collect') {
     let body = '';
+
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
         const eventData = JSON.parse(body);
+
         console.log('📥 Received CAPI event:', eventData);
 
+        // Mutăm fbp și fbc în user_data
+        const event = {
+          ...eventData,
+          user_data: {
+            ...eventData.user_data,
+            fbp: eventData.fbp || undefined,
+            fbc: eventData.fbc || undefined,
+          }
+        };
+
+        // Eliminăm fbp și fbc din nivelul superior
+        delete event.fbp;
+        delete event.fbc;
+
         const forwardBody = {
-          data: [eventData],
+          data: [event]
         };
 
         const fbRes = await fetch(`https://graph.facebook.com/v17.0/${FB_PIXEL_ID}/events?access_token=${FB_ACCESS_TOKEN}`, {
@@ -48,7 +65,7 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify({ status: 'forwarded', fbResult }));
       } catch (err) {
         console.error('❌ Failed to process request:', err);
-        res.writeHead(500);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: 'Internal Server Error' }));
       }
     });
